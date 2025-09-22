@@ -24,5 +24,6 @@ A Windows application that creates a fullscreen overlay with animated GIF suppor
 │   └── audio.wav       # Background audio
 └── README.md
 
+
 ## Disclaimer
 Educational purposes only. Test in safe environment.
