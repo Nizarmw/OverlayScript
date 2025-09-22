@@ -1,0 +1,12 @@
+# Compiled files
+*.obj
+*.o
+
+# Visual Studio files
+*.vcxproj*
+*.sln
+*.suo
+*.user
+Debug/
+Release/
+x64/
