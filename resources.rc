@@ -1,0 +1,8 @@
+#include "resource.h"
+
+// Embed GIF files as binary data
+IDR_OPENING_GIF    RCDATA    "assets/opening.gif"
+IDR_IDLE_GIF       RCDATA    "assets/idle.gif"
+
+// Embed audio file as WAVE resource
+IDR_AUDIO_WAV      WAVE      "assets/audio.wav"
