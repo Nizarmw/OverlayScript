@@ -2,6 +2,7 @@
 #include <gdiplus.h>
 #include <mmsystem.h> 
 #include <cstdio>
+#include <thread>
 #pragma comment(lib, "gdiplus.lib")
 #pragma comment(lib, "winmm.lib")
 
@@ -215,11 +216,36 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR lpCmdLine, int) {
     bool isStartupRun = (strstr(lpCmdLine, "-startup") != NULL);
     
     if (isStartupRun) {
-        // Startup launch message
-        MessageBoxW(NULL, L"I'm BAAAACK", L"", MB_OK | MB_ICONINFORMATION);
+        // Startup launch message - auto close in 2 seconds
+        std::thread([]() {
+            MessageBoxW(NULL, L"I'm BAAAACK", L"", MB_OK | MB_ICONINFORMATION);
+        }).detach();
+        
+        std::thread([]() {
+            Sleep(2000); // 2 seconds
+            HWND msgBox = FindWindowW(L"#32770", L"");
+            if (msgBox) {
+                PostMessage(msgBox, WM_COMMAND, IDOK, 0);
+            }
+        }).detach();
+        
+        Sleep(2500); // Wait for message to close before continuing
+        
     } else {
-        // Manual Launch or first run
-        MessageBoxW(NULL, L"Your Device is now filled with Determination!", L"Notice", MB_OK | MB_ICONINFORMATION);
+        // Manual Launch - auto close in 3 seconds
+        std::thread([]() {
+            MessageBoxW(NULL, L"Your Device is now filled with Determination!", L"Notice", MB_OK | MB_ICONINFORMATION);
+        }).detach();
+        
+        std::thread([]() {
+            Sleep(3000); // 3 seconds
+            HWND msgBox = FindWindowW(L"#32770", L"Notice");
+            if (msgBox) {
+                PostMessage(msgBox, WM_COMMAND, IDOK, 0);
+            }
+        }).detach();
+        
+        Sleep(3500); // Wait before continuing
         
         // Add to startup on first manual run
         AddToStartup();
